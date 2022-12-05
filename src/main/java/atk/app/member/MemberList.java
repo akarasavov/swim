@@ -1,7 +1,8 @@
 package atk.app.member;
 
-import static atk.app.member.MemberList.MemberState.*;
+import static atk.app.member.MemberList.MemberState.isReviveLocalSuspectedMember;
 import static atk.app.member.MemberList.MemberState.isSuspectLocalAliveMember;
+import static atk.app.member.MemberList.MemberState.isUpdateOfMemberStateWithTheSameType;
 import java.io.Serializable;
 import java.net.SocketAddress;
 import java.time.Instant;
@@ -17,45 +18,45 @@ import java.util.Objects;
 public class MemberList {
 
     private final Map<MemberName, MemberState> memberStates = new HashMap<>();
-    private final SuspectTimers suspectTimers;
+    private final MemberState myState;
 
-    public MemberList(SuspectTimers suspectTimers, MemberState myState) {
-        this.suspectTimers = suspectTimers;
-
-        memberStates.put(myState.memberName, myState);
+    public MemberList(MemberState myState) {
+        this.myState = myState;
     }
 
-    /**
-     * Merge current state with other state without resolving conflicts. Should be used only for full state sync
-     */
-    public synchronized void mergeWithoutConflictResolution(Map<MemberName, MemberState> otherMemberState) {
-        memberStates.putAll(otherMemberState);
+    public synchronized void suspectMember(MemberName memberName) {
+        memberStates.computeIfPresent(memberName, (ignored, memberState) -> memberState.suspectMember());
     }
 
-    public synchronized void merge(Map<MemberName, MemberState> otherStates) {
-        otherStates.forEach((memberName, remoteMemberState) -> {
+    public synchronized void update(Map<MemberName, MemberState> otherStates) {
+        otherStates.forEach((memberName, remoteState) -> {
+            //TODO - what action you need to do if you are in suspected state
+            //only I can update my state
+            if (memberName.equals(myState.memberName)) {
+                return;
+            }
             var localState = memberStates.get(memberName);
-            // dead state override any state
-            if (localState == null || remoteMemberState.stateType.isDead()) {
-                //TODO remove member suspicious timer if its run
-                suspectTimers.reviveMember(memberName);
-                memberStates.put(memberName, remoteMemberState);
-            } else if (isSuspectLocalAliveMember(localState, remoteMemberState)) {
-                //TODO run suspect timer
-                suspectTimers.suspectMember(memberName);
-                //TODO if this is for me increment your local incarnation number
-                memberStates.put(memberName, remoteMemberState);
-            } else if (isReviveLocalSuspectedMember(localState, remoteMemberState)) {
-                //TODO remove local suspected member
-                suspectTimers.reviveMember(memberName);
-                memberStates.put(memberName, remoteMemberState);
-            } else if (localState.incarnation <= remoteMemberState.incarnation) {
-                memberStates.put(memberName, remoteMemberState);
+            if (localState == null ||
+                    remoteState.stateType.isDead() ||
+                    isSuspectLocalAliveMember(localState, remoteState) ||
+                    isReviveLocalSuspectedMember(localState, remoteState) ||
+                    isUpdateOfMemberStateWithTheSameType(localState, remoteState)) {
+                memberStates.put(memberName, remoteState);
             }
         });
     }
 
+    public synchronized MemberName getMyName(){
+        return myState.memberName;
+    }
+
     public synchronized List<MemberState> getMemberStates() {
+        var memberStateCopy = new ArrayList<>(memberStates.values());
+        memberStateCopy.add(myState);
+        return memberStateCopy;
+    }
+
+    public synchronized List<MemberState> getMemberStateWithoutMe() {
         return new ArrayList<>(memberStates.values());
     }
 
@@ -71,11 +72,27 @@ public class MemberList {
                            SocketAddress bindAddress,
                            int incarnation,
                            MemberStateType stateType) {
+            this(memberName, bindAddress, incarnation, stateType, Instant.now());
+        }
+
+        public MemberState(MemberName memberName,
+                           SocketAddress bindAddress,
+                           int incarnation,
+                           MemberStateType stateType,
+                           Instant updated) {
             this.memberName = memberName;
             this.bindAddress = bindAddress;
             this.incarnation = incarnation;
             this.stateType = stateType;
-            this.updated = Instant.now();
+            this.updated = updated;
+        }
+
+        public MemberState suspectMember() {
+            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.SUSPECTED, Instant.now());
+        }
+
+        public MemberState markMemberAsDead() {
+            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.DEAD, Instant.now());
         }
 
         static boolean isSuspectLocalAliveMember(MemberState local, MemberState remote) {
@@ -90,6 +107,10 @@ public class MemberList {
                     remote.stateType == MemberStateType.ALIVE;
         }
 
+        static boolean isUpdateOfMemberStateWithTheSameType(MemberState local, MemberState remote) {
+            return local.stateType == remote.stateType && local.incarnation < remote.incarnation;
+        }
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -101,6 +122,17 @@ public class MemberList {
         @Override
         public int hashCode() {
             return Objects.hash(memberName, bindAddress, incarnation, stateType, updated);
+        }
+
+        @Override
+        public String toString() {
+            return "MemberState{" +
+                    "memberName=" + memberName +
+                    ", bindAddress=" + bindAddress +
+                    ", incarnation=" + incarnation +
+                    ", stateType=" + stateType +
+                    ", updated=" + updated +
+                    '}';
         }
     }
 

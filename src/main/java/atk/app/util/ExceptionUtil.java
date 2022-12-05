@@ -1,11 +1,14 @@
 package atk.app.util;
 
+import org.slf4j.Logger;
+
 public class ExceptionUtil {
 
-    public static void ignoreThrownExceptions(Callable callable) {
+    public static void ignoreThrownExceptions(Callable callable, Logger logger) {
         try {
             callable.call();
-        } catch (Exception ignored) {
+        } catch (Exception exception) {
+            logger.warn("{}", exception.toString());
         }
     }
 

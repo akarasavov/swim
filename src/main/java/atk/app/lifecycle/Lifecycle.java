@@ -1,7 +1,6 @@
-package atk.app.model;
+package atk.app.lifecycle;
 
 import java.io.Closeable;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 // TODO - All lifecycles should be concurrent state machines that returns completable feature for start() and stop()

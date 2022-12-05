@@ -17,13 +17,12 @@ package atk.app.network.netty;
 
 import atk.app.network.NetworkResponse;
 import atk.app.util.channel.Channel;
-import atk.app.util.channel.LimitedChannel;
+import atk.app.util.channel.BoundedChannel;
 import atk.app.util.channel.ReadableChannel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +32,7 @@ public class NettyClientHandler extends ChannelInboundHandlerAdapter implements 
     private static final Logger logger = LoggerFactory.getLogger(NettyClientHandler.class);
 
     public NettyClientHandler() {
-        this.responseHandler = new LimitedChannel<>(1);
+        this.responseHandler = new BoundedChannel<>(1);
     }
 
     public ReadableChannel<NetworkResponse> getResponseHandler() {

@@ -26,11 +26,24 @@ abstract class AbstractChannel<T> implements Channel<T> {
         }
     }
 
+
+    @Override
+    public T pull() {
+        if (closed) {
+            return null;
+        }
+        try {
+            return queue.poll(Long.MAX_VALUE, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ignored) {
+            return null;
+        }
+    }
+
     @Override
     public void push(T element) {
         while (!closed) {
             try {
-                boolean result = queue.offer(element, 10, TimeUnit.SECONDS);
+                boolean result = queue.offer(element, Long.MAX_VALUE, TimeUnit.MILLISECONDS);
                 if (result) {
                     return;
                 }

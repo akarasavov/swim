@@ -1,10 +1,10 @@
 package atk.app.member;
 
-import static atk.app.util.channel.ConcurrencyUtil.shutdownExecutor;
+import static atk.app.util.ConcurrencyUtil.shutdownExecutor;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import atk.app.util.MemberStateUtil;
-import atk.app.util.channel.LimitedChannel;
+import atk.app.util.channel.BoundedChannel;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,7 +28,7 @@ class SuspectTimersTest {
 
     @Test
     void shouldMarkMemberAsDeadIfDeadTimeoutIsExceeded() {
-        var deadMemberChannel = new LimitedChannel<MemberName>(1);
+        var deadMemberChannel = new BoundedChannel<MemberName>(1);
         var suspectTimers = new SuspectTimers(deadMemberChannel, executor, Duration.ofSeconds(1));
         var suspectedMember = MemberStateUtil.randomMemberName();
 
@@ -42,7 +42,7 @@ class SuspectTimersTest {
 
     @Test
     void memberShouldntBeMarkedAsDeadIfItIsRevivedBeforeTimeoutIsExceeded(){
-        var deadMemberChannel = new LimitedChannel<MemberName>(1);
+        var deadMemberChannel = new BoundedChannel<MemberName>(1);
         var suspectTimers = new SuspectTimers(deadMemberChannel, executor, Duration.ofSeconds(2));
         var suspectedMember = MemberStateUtil.randomMemberName();
 
@@ -58,7 +58,7 @@ class SuspectTimersTest {
 
     @Test
     void memberShouldBeMarkedAsDeadIfItIsRevivedAfterTimeoutIsExceeded() throws InterruptedException {
-        var deadMemberChannel = new LimitedChannel<MemberName>(1);
+        var deadMemberChannel = new BoundedChannel<MemberName>(1);
         var suspectTimers = new SuspectTimers(deadMemberChannel, executor, Duration.ofMillis(500));
         var suspectedMember = MemberStateUtil.randomMemberName();
 

@@ -1,16 +1,15 @@
-package atk.app.util.channel;
+package atk.app.util;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class ConcurrencyUtil {
 
-    public static <T> T waitDefaultTime(CompletableFuture<T> future)
+    public static <T> T awaitForCompletion(CompletableFuture<T> future)
             throws ExecutionException, InterruptedException, TimeoutException {
         return future.get(20, TimeUnit.SECONDS);
     }

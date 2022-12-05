@@ -13,26 +13,28 @@ import java.util.concurrent.TimeUnit;
 
 public class SuspectTimers implements Closeable {
 
-    private final WriteableChannel<MemberName> deadMemberChannel;
+    private final WriteableChannel<MemberName> suspectMemberChannel;
     private final ScheduledExecutorService executorService;
     private final Map<MemberName, ScheduledFuture<?>> timersMap = new ConcurrentHashMap<>();
-    private final Duration deadTimeout;
+    private final Duration suspectedMemberDeadline;
 
     private volatile boolean closed = false;
 
-    public SuspectTimers(WriteableChannel<MemberName> deadMemberChannel, ScheduledExecutorService executorService, Duration deadTimeout) {
-        this.deadMemberChannel = deadMemberChannel;
+    public SuspectTimers(WriteableChannel<MemberName> deadMembers, ScheduledExecutorService executorService, Duration suspectedMemberDeadline) {
+        this.suspectMemberChannel = deadMembers;
         this.executorService = executorService;
-        this.deadTimeout = deadTimeout;
+        this.suspectedMemberDeadline = suspectedMemberDeadline;
     }
 
     public void suspectMember(MemberName memberName) {
         if (isClosed()) {
             return;
         }
-        timersMap.putIfAbsent(memberName, executorService.schedule(() -> {
-            deadMemberChannel.push(memberName);
-        }, deadTimeout.toMillis(), TimeUnit.MILLISECONDS));
+        timersMap.putIfAbsent(memberName,
+                // member will be marked as dead if suspectedMemberDeadline is violated
+                executorService.schedule(() -> suspectMemberChannel.push(memberName), suspectedMemberDeadline.toMillis(),
+                        TimeUnit.MILLISECONDS)
+        );
     }
 
     public void reviveMember(MemberName memberName) {

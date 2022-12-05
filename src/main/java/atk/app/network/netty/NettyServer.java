@@ -1,10 +1,10 @@
 package atk.app.network.netty;
 
-import static atk.app.util.FutureUtil.VOID;
-import static atk.app.util.FutureUtil.toVoidFuture;
-import atk.app.model.Lifecycle;
+import atk.app.lifecycle.ThreadSafeLifecycle;
+import atk.app.network.NetworkServer;
 import atk.app.network.TcpRequest;
-import atk.app.util.channel.WriteableChannel;
+import atk.app.util.ExceptionUtil;
+import atk.app.util.channel.ReadableChannel;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -21,27 +21,27 @@ import io.netty.handler.logging.LoggingHandler;
 import io.netty.util.concurrent.EventExecutorGroup;
 import io.netty.util.concurrent.Future;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class NettyServer implements Lifecycle<Void> {
+public class NettyServer extends ThreadSafeLifecycle implements NetworkServer<Void> {
     private static final Logger logger = LoggerFactory.getLogger(NettyServer.class);
     private final ServerBootstrap bootstrap;
     private final List<EventLoopGroup> workerGroups;
     private final int port;
-    private final ExecutorService nettyServerExecutor;
-    private volatile Channel channel;
+    private final ReadableChannel<TcpRequest> readableChannel;
+    private volatile Channel networkChannel;
 
-    public NettyServer(int port, WriteableChannel<TcpRequest> requestsChannel, ExecutorService executorService) {
-        this.nettyServerExecutor = executorService;
-        EventLoopGroup bossGroup = new NioEventLoopGroup(1, executorService);
-        EventLoopGroup workerGroup = new NioEventLoopGroup(1, executorService);
+    public NettyServer(int port, atk.app.util.channel.Channel<TcpRequest> channel, ExecutorService lifecycleExecutor) {
+        super(lifecycleExecutor);
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1, lifecycleExecutor);
+        EventLoopGroup workerGroup = new NioEventLoopGroup(1, lifecycleExecutor);
         this.port = port;
         this.workerGroups = List.of(bossGroup, workerGroup);
         this.bootstrap = new ServerBootstrap();
+        this.readableChannel = channel;
         bootstrap.group(bossGroup, workerGroup)
                 .channel(NioServerSocketChannel.class)
                 .handler(new LoggingHandler(LogLevel.INFO))
@@ -52,57 +52,54 @@ public class NettyServer implements Lifecycle<Void> {
                         p.addLast(
                                 new ObjectEncoder(),
                                 new ObjectDecoder(ClassResolvers.cacheDisabled(null)),
-                                new NettyServerHandler(requestsChannel));
+                                new NettyServerHandler(channel));
                     }
                 });
     }
 
     @Override
-    public synchronized CompletableFuture<Void> start() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                var channelFuture = bootstrap.bind(port).sync();
-                channelFuture.get();
-                this.channel = channelFuture.channel();
-                logger.debug("Successfully bind to port {}", port);
-                return VOID;
-            } catch (Exception ex) {
-                logger.error("Wasn't able to bind to port {}", port);
-                throw new RuntimeException(ex);
-            }
-        }, nettyServerExecutor);
-
-    }
-
-    @Override
-    public synchronized CompletableFuture<Void> stop() {
-        return toVoidFuture(internalClose());
-    }
-
-    @Override
-    public synchronized void close() {
+    protected void start0() {
         try {
-            internalClose().get();
-        } catch (InterruptedException | ExecutionException ignored) {
+            var channelFuture = bootstrap.bind(port).sync();
+            channelFuture.get();
+            this.networkChannel = channelFuture.channel();
+            logger.debug("Successfully bind to port {}", port);
+        } catch (Exception ex) {
+            logger.error("Wasn't able to bind to port {}", port, ex);
+            throw new RuntimeException(ex);
         }
     }
 
-    private CompletableFuture<Void> internalClose() {
-        return CompletableFuture.supplyAsync(() -> {
-            if (channel == null) {
-                throw new IllegalStateException("Netty server wasn't started");
+    @Override
+    protected void stop0() {
+        internalClose();
+    }
+
+    @Override
+    protected void close0() {
+        ExceptionUtil.ignoreThrownExceptions(readableChannel::close, logger);
+        internalClose();
+    }
+
+    @Override
+    public ReadableChannel<TcpRequest> getReceivedRequests() {
+        return readableChannel;
+    }
+
+    private void internalClose() {
+        if (networkChannel == null) {
+            return;
+        }
+        networkChannel.close();
+        networkChannel = null;
+        List<? extends Future<?>> futures = workerGroups.stream().map(EventExecutorGroup::shutdownGracefully).toList();
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
-            channel.close();
-            List<? extends Future<?>> futures = workerGroups.stream().map(EventExecutorGroup::shutdownGracefully).toList();
-            for (Future<?> future : futures) {
-                try {
-                    future.get();
-                } catch (InterruptedException | ExecutionException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            logger.debug("Successfully close connection");
-            return null;
-        }, nettyServerExecutor);
+        }
+        logger.debug("Successfully close connection");
     }
 }
