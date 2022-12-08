@@ -25,7 +25,13 @@ public class MemberList {
     }
 
     public synchronized void suspectMember(MemberName memberName) {
-        memberStates.computeIfPresent(memberName, (ignored, memberState) -> memberState.suspectMember());
+
+        memberStates.computeIfPresent(memberName, (ignored, oldMemberState) -> oldMemberState.isSuspected() ? oldMemberState : oldMemberState.suspectMember());
+    }
+
+    public synchronized void makeMemberAlive(MemberName memberName) {
+        memberStates.computeIfPresent(memberName, (ignored, oldMemberState) ->
+                oldMemberState.isAlive() ? oldMemberState : oldMemberState.makeMemberAlive());
     }
 
     public synchronized void update(Map<MemberName, MemberState> otherStates) {
@@ -46,7 +52,7 @@ public class MemberList {
         });
     }
 
-    public synchronized MemberName getMyName(){
+    public synchronized MemberName getMyName() {
         return myState.memberName;
     }
 
@@ -91,8 +97,20 @@ public class MemberList {
             return new MemberState(memberName, bindAddress, incarnation, MemberStateType.SUSPECTED, Instant.now());
         }
 
-        public MemberState markMemberAsDead() {
+        public MemberState makeMemberDead() {
             return new MemberState(memberName, bindAddress, incarnation, MemberStateType.DEAD, Instant.now());
+        }
+
+        public MemberState makeMemberAlive() {
+            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.ALIVE, Instant.now());
+        }
+
+        public boolean isAlive() {
+            return stateType.isAlive();
+        }
+
+        public boolean isSuspected() {
+            return stateType.isSuspected();
         }
 
         static boolean isSuspectLocalAliveMember(MemberState local, MemberState remote) {
@@ -142,6 +160,14 @@ public class MemberList {
 
         public boolean isDead() {
             return this == DEAD;
+        }
+
+        public boolean isSuspected() {
+            return this == SUSPECTED;
+        }
+
+        public boolean isAlive() {
+            return this == ALIVE;
         }
     }
 }

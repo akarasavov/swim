@@ -26,7 +26,6 @@ class NettyServerTest {
             awaitForCompletion(server.start());
 
             // when client connect to server
-
             Executors.newSingleThreadExecutor().submit(() -> {
                 var receivedRequest = channel.pull(Duration.ofMinutes(1));
                 //server worker received the right request
@@ -35,7 +34,7 @@ class NettyServerTest {
             });
 
             // when client send a request
-            var networkResponse = awaitForCompletion(new NettyClient(executorService, Duration.ofSeconds(10)).send(request, serverSocketAddress));
+            var networkResponse = awaitForCompletion(new NettyClient(executorService).send(request, serverSocketAddress, Duration.ofSeconds(10)));
 
             //client worker received the right response
             assertEquals(response, networkResponse);

@@ -19,13 +19,14 @@ public class FutureUtil {
         return future.thenApply(o -> null);
     }
 
-    public static <V> V get(CompletableFuture<V> future, Duration duration) {
-        return getIfExists(future, duration).orElseThrow(() -> new IllegalStateException(future + " haven't completed for " + duration));
+    public static <V> V get(CompletableFuture<V> future) {
+        return getIfExists(future)
+                .orElseThrow(() -> new IllegalStateException(future + " haven't completed"));
     }
 
-    public static <V> Optional<V> getIfExists(CompletableFuture<V> future, Duration duration) {
+    public static <V> Optional<V> getIfExists(CompletableFuture<V> future) {
         try {
-            return Optional.of(future.get(duration.toMillis(), TimeUnit.MILLISECONDS));
+            return Optional.of(future.get());
         } catch (Exception ignored) {
             return Optional.empty();
         }

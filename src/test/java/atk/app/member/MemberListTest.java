@@ -36,7 +36,7 @@ class MemberListTest {
         memberList.update(Map.of(aliveMember.memberName, aliveMember));
 
         //when an alive member is marked as dead
-        var deadMember = aliveMember.markMemberAsDead();
+        var deadMember = aliveMember.makeMemberDead();
         memberList.update(Map.of(aliveMember.memberName, deadMember));
 
         //then current member is expected to be dead

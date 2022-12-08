@@ -11,7 +11,7 @@ public class MemberListUtil {
         var memberList = new MemberList(MemberStateUtil.aliveMember());
         List<MemberList.MemberState> memberStates = new ArrayList<>();
         for (int i = 0; i < numberOfMembers - 1; i++) {
-            memberStates.add(MemberStateUtil.aliveMember());
+            memberStates.add(MemberStateUtil.createMemberState(MemberList.MemberStateType.ALIVE, i));
         }
         memberList.update(memberStates.stream().collect(Collectors.toMap(m -> m.memberName, m -> m)));
         return memberList;

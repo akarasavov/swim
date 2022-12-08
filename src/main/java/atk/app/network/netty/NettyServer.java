@@ -1,5 +1,6 @@
 package atk.app.network.netty;
 
+import atk.app.lifecycle.LifecycleStates;
 import atk.app.lifecycle.ThreadSafeLifecycle;
 import atk.app.network.NetworkServer;
 import atk.app.network.TcpRequest;
@@ -23,6 +24,8 @@ import io.netty.util.concurrent.Future;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,34 +75,32 @@ public class NettyServer extends ThreadSafeLifecycle implements NetworkServer<Vo
 
     @Override
     protected void stop0() {
-        internalClose();
+        if (networkChannel == null) {
+            return;
+        }
+        try {
+            networkChannel.close().get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+            throw new RuntimeException(e);
+        }
+        networkChannel = null;
     }
 
     @Override
     protected void close0() {
         ExceptionUtil.ignoreThrownExceptions(readableChannel::close, logger);
-        internalClose();
+        List<? extends Future<?>> futures = workerGroups.stream().map(EventExecutorGroup::shutdownGracefully).toList();
+        for (Future<?> future : futures) {
+            try {
+                future.get(10, TimeUnit.SECONDS);
+            } catch (InterruptedException | ExecutionException | TimeoutException e) {
+                throw new RuntimeException(e);
+            }
+        }
     }
 
     @Override
     public ReadableChannel<TcpRequest> getReceivedRequests() {
         return readableChannel;
-    }
-
-    private void internalClose() {
-        if (networkChannel == null) {
-            return;
-        }
-        networkChannel.close();
-        networkChannel = null;
-        List<? extends Future<?>> futures = workerGroups.stream().map(EventExecutorGroup::shutdownGracefully).toList();
-        for (Future<?> future : futures) {
-            try {
-                future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        logger.debug("Successfully close connection");
     }
 }

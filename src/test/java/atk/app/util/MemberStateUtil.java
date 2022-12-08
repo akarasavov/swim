@@ -11,22 +11,22 @@ public class MemberStateUtil {
     private static final Random random = new Random();
 
     public static MemberList.MemberState suspectMember() {
-        return createMemberState(MemberList.MemberStateType.DEAD);
+        return createMemberState(MemberList.MemberStateType.DEAD, 0);
     }
 
     public static MemberList.MemberState deadMember() {
-        return createMemberState(MemberList.MemberStateType.DEAD);
+        return createMemberState(MemberList.MemberStateType.DEAD, 0);
     }
 
     public static MemberList.MemberState aliveMember() {
-        return createMemberState(MemberList.MemberStateType.ALIVE);
+        return createMemberState(MemberList.MemberStateType.ALIVE, 0);
     }
 
     public static MemberList.MemberState updateIncarnationNumber(MemberList.MemberState memberState, int incarnationNumber) {
         return new MemberList.MemberState(memberState.memberName, aliveMember().bindAddress, incarnationNumber, memberState.stateType);
     }
 
-    public static MemberList.MemberState createMemberState(MemberList.MemberStateType stateType) {
+    public static MemberList.MemberState createMemberState(MemberList.MemberStateType stateType, int port) {
         return new MemberList.MemberState(randomMemberName(), new InetSocketAddress(0), 0, stateType);
     }
 

@@ -14,39 +14,43 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 
 public class MemberTestUtil implements Closeable {
 
     private final ExecutorService executor;
-    private final ScheduledExecutorService scheduledExecutor;
     private final List<Closeable> closeables = new ArrayList<>();
     private int nextPort = 8777;
 
     public MemberTestUtil() {
         this.executor = Executors.newCachedThreadPool();
-        this.scheduledExecutor = Executors.newScheduledThreadPool(10);
+    }
+
+    public TestMember createMember(String name) {
+        return createMember(name, Duration.ofSeconds(10), Duration.ofSeconds(10), Duration.ofSeconds(3));
+    }
+
+    public TestMember createMember(String name, Duration probePeriod, Duration networkRequestTimeout) {
+        return createMember(name, probePeriod, Duration.ofSeconds(10), networkRequestTimeout);
     }
 
     /**
      * No thread safe method
      */
-    public TestMember createMember(String name) {
+    public TestMember createMember(String name, Duration probePeriod, Duration suspectMemberDeadline, Duration networkRequestTimeout) {
         var config = new Config(new MemberName(name), new InetSocketAddress("0.0.0.0", nextPort),
-                Duration.ofSeconds(10),
-                Duration.ofSeconds(10),
-                Duration.ofSeconds(3),
+                probePeriod,
+                suspectMemberDeadline,
+                networkRequestTimeout,
                 2);
         var server = new NettyServer(nextPort, new BoundedChannel<>(10), executor);
-        var client = new NettyClient(executor, Duration.ofSeconds(20));
+        var client = new NettyClient(executor);
         nextPort++;
         closeables.add(server);
-        return new TestMember(config, new Member(config, executor, scheduledExecutor, server, client));
+        return new TestMember(config, new Member(config, executor, server, client));
     }
 
     @Override
     public void close() {
-        System.out.println("Close memberTestUtil");
         closeables.forEach(e -> {
             try {
                 e.close();
@@ -55,7 +59,6 @@ public class MemberTestUtil implements Closeable {
             }
         });
         ConcurrencyUtil.shutdownExecutor(executor);
-        ConcurrencyUtil.shutdownExecutor(scheduledExecutor);
     }
 
     public record TestMember(Config config, Member member) implements Closeable {

@@ -2,9 +2,10 @@ package atk.app.member;
 
 import atk.app.lifecycle.ThreadSafeLifecycle;
 import atk.app.network.netty.NetworkClient;
-import atk.app.network.protocol.AckResponse;
 import atk.app.network.protocol.IndirectPingRequest;
+import atk.app.network.protocol.NetworkResponseHandler;
 import atk.app.network.protocol.PingRequest;
+import atk.app.util.ConcurrencyUtil;
 import atk.app.util.ExceptionUtil;
 import atk.app.util.FutureUtil;
 import java.time.Duration;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -25,46 +27,45 @@ import org.slf4j.LoggerFactory;
 public class ProbeRunner extends ThreadSafeLifecycle {
     private static final Logger logger = LoggerFactory.getLogger(ProbeRunner.class);
     private final MemberList memberList;
-    private final ScheduledExecutorService scheduledExecutor;
+    private final ScheduledExecutorService executor;
     private final Duration probePeriod;
-    private final Duration pingTimeout;
+    private final Duration maximumRequestTimeout;
     private final NetworkClient networkClient;
     private final SuspectTimers suspectTimers;
     private final int indirectPingTargets;
     private final MemberName myName;
+    private final NetworkResponseHandler responseHandler;
     private volatile ScheduledFuture<?> probeJobFuture;
 
-    public ProbeRunner(NetworkClient networkClient,
+    public ProbeRunner(NetworkResponseHandler responseHandler,
+                       NetworkClient networkClient,
                        MemberList memberList,
                        SuspectTimers suspectTimers,
-                       ScheduledExecutorService scheduledExecutor,
                        ExecutorService lifecycleExecutor,
                        Duration probePeriod,
-                       Duration networkRequestMaximumDuration,
+                       Duration maximumRequestTimeout,
                        int indirectPingTargets) {
         super(lifecycleExecutor);
-        if (networkRequestMaximumDuration.compareTo(probePeriod) >= 0) {
-            throw new IllegalArgumentException("Ping timeout should be less then probe period");
-        }
+        this.responseHandler = responseHandler;
         this.networkClient = networkClient;
         this.myName = memberList.getMyName();
         this.memberList = memberList;
-        this.scheduledExecutor = scheduledExecutor;
+        this.executor = Executors.newScheduledThreadPool(1);
         this.probePeriod = probePeriod;
-        this.pingTimeout = networkRequestMaximumDuration;
+        this.maximumRequestTimeout = maximumRequestTimeout;
         this.suspectTimers = suspectTimers;
         this.indirectPingTargets = indirectPingTargets;
     }
 
     @Override
     protected void start0() {
-        this.probeJobFuture = scheduledExecutor.scheduleAtFixedRate(this::probeARandomMember, 0, probePeriod.toMillis(), TimeUnit.MILLISECONDS);
+        this.probeJobFuture = executor.scheduleAtFixedRate(this::probeARandomMember, 0, probePeriod.toMillis(), TimeUnit.MILLISECONDS);
         logger.debug("Start probe runner for {}", myName);
     }
 
     @Override
     protected void stop0() {
-        while (probeJobFuture.isDone()) {
+        while (!probeJobFuture.isDone()) {
             probeJobFuture.cancel(true);
             logger.debug("Cancel probe runner job for {}", myName);
             ExceptionUtil.ignoreThrownExceptions(() -> Thread.sleep(100), logger);
@@ -74,6 +75,7 @@ public class ProbeRunner extends ThreadSafeLifecycle {
     @Override
     protected void close0() {
         start0();
+        ConcurrencyUtil.shutdownExecutor(executor);
     }
 
     //TODO - strategy for picking probe member should be extracted from separate class
@@ -98,17 +100,22 @@ public class ProbeRunner extends ThreadSafeLifecycle {
                         .collect(Collectors.toSet());
                 if (!sendIndirectPingToRandomMembers(probeTarget, indirectPingTargets, Duration.between(now, probeDeadLine))) {
                     suspectMember(probeTarget);
+                } else {
+                    memberList.makeMemberAlive(probeTarget.memberName);
+                    logger.debug("{} successfully send indirect ping to {}", probeTarget.memberName, probeTarget.memberName);
                 }
             }
+        } else {
+            memberList.makeMemberAlive(probeTarget.memberName);
+            logger.debug("{} successfully ping {}.", myName, probeTarget.memberName);
         }
         logger.debug("{} Finish probing a {}", myName, probeTarget);
     }
 
     private boolean sendPingRequestToTargetMember(List<MemberList.MemberState> localMemberStates, MemberList.MemberState probeTarget) {
-        var networkResponse = FutureUtil.getIfExists(networkClient.send(new PingRequest(localMemberStates), probeTarget.bindAddress),
-                pingTimeout);
+        var networkResponse = FutureUtil.getIfExists(networkClient.send(new PingRequest(localMemberStates), probeTarget.bindAddress, maximumRequestTimeout));
         if (networkResponse.isPresent()) {
-            processAckResponse((AckResponse) networkResponse.get());
+            responseHandler.processNetworkResponse(networkResponse.get());
             return true;
         }
         return false;
@@ -116,13 +123,16 @@ public class ProbeRunner extends ThreadSafeLifecycle {
 
     private boolean sendIndirectPingToRandomMembers(MemberList.MemberState probeTarget, Set<MemberList.MemberState> indirectPingTargets, Duration probeDeadLine) {
         logger.debug("{} Pick {} for indirect probe of {}", myName, indirectPingTargets.stream().map(m -> m.memberName).collect(Collectors.toList()), probeTarget.memberName);
+        if (indirectPingTargets.isEmpty()) {
+            return false;
+        }
         var targetsForIndirectPing = indirectPingTargets.stream().map(member -> member.bindAddress).collect(Collectors.toList());
-        var requestFeatures = networkClient.send(new IndirectPingRequest(memberList.getMemberStates(), probeTarget.bindAddress), targetsForIndirectPing);
+        var requestFeatures = networkClient.send(new IndirectPingRequest(memberList.getMemberStates(), probeTarget.bindAddress), targetsForIndirectPing, probeDeadLine);
         //Ask K members to send ping to the probe member
         var responses = FutureUtil.getDoneResponsesThatCompleted(requestFeatures, probeDeadLine);
         if (!responses.isEmpty()) {
             logger.debug("{} Received {} responses", myName, responses.size());
-            responses.forEach(feature -> processAckResponse((AckResponse) FutureUtil.get(feature, Duration.ZERO)));
+            responses.forEach(feature -> responseHandler.processNetworkResponse(FutureUtil.get(feature)));
             return true;
         }
         return false;
@@ -132,12 +142,6 @@ public class ProbeRunner extends ThreadSafeLifecycle {
         logger.debug("{} Suspect member {}", myName, probeTarget.memberName);
         suspectTimers.suspectMember(probeTarget.memberName);
         memberList.suspectMember(probeTarget.memberName);
-    }
-
-    private void processAckResponse(AckResponse ackResponse) {
-        var remoteMembershipMap = ackResponse.memberStates().stream().collect(Collectors.toMap(k -> k.memberName, k -> k));
-        memberList.update(remoteMembershipMap);
-        logger.debug("{} Processed {}", myName, ackResponse);
     }
 
     private Set<Integer> getKRandomIndexesInRange(int k, int range) {
