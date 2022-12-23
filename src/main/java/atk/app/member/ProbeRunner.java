@@ -1,7 +1,7 @@
 package atk.app.member;
 
 import atk.app.lifecycle.ThreadSafeLifecycle;
-import atk.app.network.netty.NetworkClient;
+import atk.app.network.NetworkClient;
 import atk.app.network.protocol.IndirectPingRequest;
 import atk.app.network.protocol.NetworkResponseHandler;
 import atk.app.network.protocol.PingRequest;
@@ -92,6 +92,7 @@ public class ProbeRunner extends ThreadSafeLifecycle {
             var now = Instant.now();
             if (now.isAfter(probeDeadLine)) {
                 suspectMember(probeTarget);
+                return;
             } else {
                 int numberOfIndirectPingTargets = Math.min(this.indirectPingTargets, localMemberStates.size() - 1);
                 var indirectPingTargets = getKRandomIndexesInRange(numberOfIndirectPingTargets, localMemberStates.size(), index -> !index.equals(probeTargetIndex))
@@ -100,16 +101,15 @@ public class ProbeRunner extends ThreadSafeLifecycle {
                         .collect(Collectors.toSet());
                 if (!sendIndirectPingToRandomMembers(probeTarget, indirectPingTargets, Duration.between(now, probeDeadLine))) {
                     suspectMember(probeTarget);
+                    return;
                 } else {
-                    memberList.makeMemberAlive(probeTarget.memberName);
                     logger.debug("{} successfully send indirect ping to {}", probeTarget.memberName, probeTarget.memberName);
                 }
             }
         } else {
-            memberList.makeMemberAlive(probeTarget.memberName);
             logger.debug("{} successfully ping {}.", myName, probeTarget.memberName);
         }
-        logger.debug("{} Finish probing a {}", myName, probeTarget);
+        unSuspectMember(probeTarget);
     }
 
     private boolean sendPingRequestToTargetMember(List<MemberList.MemberState> localMemberStates, MemberList.MemberState probeTarget) {
@@ -139,9 +139,15 @@ public class ProbeRunner extends ThreadSafeLifecycle {
     }
 
     public void suspectMember(MemberList.MemberState probeTarget) {
-        logger.debug("{} Suspect member {}", myName, probeTarget.memberName);
-        suspectTimers.suspectMember(probeTarget.memberName);
-        memberList.suspectMember(probeTarget.memberName);
+        if (memberList.suspectMember(probeTarget.memberName)) {
+            suspectTimers.suspectMember(probeTarget.memberName);
+        }
+    }
+
+    public void unSuspectMember(MemberList.MemberState probeTarget) {
+        if (memberList.makeMemberAlive(probeTarget.memberName)) {
+            suspectTimers.unSuspectMember(probeTarget.memberName);
+        }
     }
 
     private Set<Integer> getKRandomIndexesInRange(int k, int range) {

@@ -3,7 +3,6 @@ package atk.app.network.protocol;
 import atk.app.member.MemberList;
 import atk.app.network.NetworkResponse;
 import java.util.List;
-import java.util.Set;
 
 /**
  *

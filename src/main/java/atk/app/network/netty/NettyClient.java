@@ -2,6 +2,7 @@ package atk.app.network.netty;
 
 import static atk.app.lifecycle.LifecycleStates.STARTED;
 import atk.app.lifecycle.ThreadSafeLifecycle;
+import atk.app.network.NetworkClient;
 import atk.app.network.NetworkRequest;
 import atk.app.network.NetworkResponse;
 import atk.app.util.ConcurrencyUtil;
@@ -35,19 +36,19 @@ public class NettyClient implements NetworkClient {
     }
 
     @Override
-    public CompletableFuture<NetworkResponse> send(NetworkRequest request, SocketAddress targetAddress, Duration requestMaximumTimeout) {
+    public CompletableFuture<NetworkResponse> send(NetworkRequest request, SocketAddress targetAddress, Duration responseMaxTimeout) {
         // client is responsible for closing this resource
         var requestSender = new SingleRequestSender(lifecycleExecutor, targetAddress);
         var result = requestSender.start()
-                .thenCompose(unused -> requestSender.sendMessage(request, requestMaximumTimeout));
+                .thenCompose(unused -> requestSender.sendMessage(request, responseMaxTimeout));
         //stop netty client when future completes or it's closed from the client side
         result.whenComplete((networkResponse, throwable) -> requestSender.close());
         return result;
     }
 
     @Override
-    public List<CompletableFuture<NetworkResponse>> send(NetworkRequest request, List<SocketAddress> targetAddresses, Duration requestMaximumTimeout) {
-        return targetAddresses.stream().map(targetAddress -> send(request, targetAddress, requestMaximumTimeout))
+    public List<CompletableFuture<NetworkResponse>> send(NetworkRequest request, List<SocketAddress> targetAddresses, Duration responseMaxTimeout) {
+        return targetAddresses.stream().map(targetAddress -> send(request, targetAddress, responseMaxTimeout))
                 .toList();
     }
 

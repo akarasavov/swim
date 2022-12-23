@@ -101,10 +101,10 @@ class MembersTest {
     }
 
     @Test
-    void memberShouldBeMarkedAsAliveIfAnotherMemberCanContactItAndSuspectDeadlineIsNotViolated() throws ExecutionException, InterruptedException, TimeoutException {
+    void memberShouldBeMarkedAsAliveIfAnotherMemberIsAbleToContactItAndSuspectDeadlineIsNotViolated() throws ExecutionException, InterruptedException, TimeoutException {
         var probePeriod = Duration.ofSeconds(4);
         var networkRequestTimeout = Duration.ofSeconds(1);
-        var suspectMemberDeadline = Duration.ofSeconds(8);
+        var suspectMemberDeadline = Duration.ofSeconds(12);
         try (TestMember m1 = memberTestUtil.createMember("m1", probePeriod, suspectMemberDeadline, networkRequestTimeout);
              TestMember m2 = memberTestUtil.createMember("m2", probePeriod, suspectMemberDeadline, networkRequestTimeout)) {
             awaitForCompletion(m1.member().start());
@@ -130,4 +130,26 @@ class MembersTest {
             assertTrue(getMemberWithName(m1.member().getMemberList(), new MemberName("m2")).stateType.isAlive());
         }
     }
+
+    @Test
+    void memberShouldBeMarkedAsDeadIfHeDoesntSendAliveMessageInRequiredTimePeriod() throws ExecutionException, InterruptedException, TimeoutException {
+        var probePeriod = Duration.ofSeconds(4);
+        var networkRequestTimeout = Duration.ofSeconds(1);
+        var suspectMemberDeadline = Duration.ofSeconds(8);
+        try (TestMember m1 = memberTestUtil.createMember("m1", probePeriod, suspectMemberDeadline, networkRequestTimeout);
+             TestMember m2 = memberTestUtil.createMember("m2", probePeriod, suspectMemberDeadline, networkRequestTimeout)) {
+            awaitForCompletion(m1.member().start());
+            awaitForCompletion(m2.member().start());
+
+            //when m1 joins m2
+            awaitForCompletion(m1.member().joinToMember(m2.config().bindAddress));
+            // then m2 stops
+            awaitForCompletion(m2.member().stop());
+            //then wait for suspect timeout to expire
+            Thread.sleep(suspectMemberDeadline.multipliedBy(2).toMillis());
+            // then m1 think that m2 is dead
+            assertTrue(getMemberWithName(m1.member().getMemberList(), new MemberName("m2")).stateType.isDead());
+        }
+    }
+
 }

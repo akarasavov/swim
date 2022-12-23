@@ -11,43 +11,80 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Local view of a members state. Class is thread-safe
  */
 public class MemberList {
-
-    private final Map<MemberName, MemberState> memberStates = new HashMap<>();
+    private static final Logger logger = LoggerFactory.getLogger(MemberList.class);
+    private final Map<MemberName, MemberState> othersState = new HashMap<>();
     private final MemberState myState;
 
     public MemberList(MemberState myState) {
         this.myState = myState;
     }
 
-    public synchronized void suspectMember(MemberName memberName) {
-
-        memberStates.computeIfPresent(memberName, (ignored, oldMemberState) -> oldMemberState.isSuspected() ? oldMemberState : oldMemberState.suspectMember());
+    public synchronized boolean suspectMember(MemberName memberName) {
+        var memberState = othersState.get(memberName);
+        if (memberState == null) {
+            return false;
+        }
+        var updatedState = memberState.tryToSuspectMember();
+        if (updatedState.equals(memberState)) {
+            logger.warn("{} wasn't able to suspect member {}. It's state is {}", memberState.memberName, memberName, updatedState);
+            return false;
+        }
+        logger.debug("{} suspected member {}", myState.memberName, memberName);
+        othersState.put(memberName, updatedState);
+        return true;
     }
 
-    public synchronized void makeMemberAlive(MemberName memberName) {
-        memberStates.computeIfPresent(memberName, (ignored, oldMemberState) ->
-                oldMemberState.isAlive() ? oldMemberState : oldMemberState.makeMemberAlive());
+    public synchronized boolean makeMemberAlive(MemberName memberName) {
+        var memberState = othersState.get(memberName);
+        if (memberState == null) {
+            return false;
+        }
+        var updatedState = memberState.tryToAliveMember();
+        if (updatedState.equals(memberState)) {
+            logger.warn("{} wasn't able to make member alive {}. It's state is {}", memberState.memberName, memberName, updatedState);
+            return false;
+        }
+        logger.debug("{} made a member alive {}", myState.memberName, memberName);
+        othersState.put(memberName, updatedState);
+        return true;
     }
 
-    public synchronized void update(Map<MemberName, MemberState> otherStates) {
-        otherStates.forEach((memberName, remoteState) -> {
+    public synchronized boolean makeMemberDead(MemberName memberName) {
+        var memberState = othersState.get(memberName);
+        if (memberState == null) {
+            return false;
+        }
+        var updatedState = memberState.tryToKillMember();
+        if (updatedState.equals(memberState)) {
+            logger.warn("{} wasn't able to kill a member {}. It's state is {}", memberState.memberName, memberName, updatedState);
+            return false;
+        }
+        logger.debug("{} killed a member {}.", myState.memberName, memberName);
+        othersState.put(memberName, updatedState);
+        return true;
+    }
+
+    public synchronized void update(Map<MemberName, MemberState> remoteStates) {
+        remoteStates.forEach((memberName, remoteState) -> {
             //TODO - what action you need to do if you are in suspected state
             //only I can update my state
             if (memberName.equals(myState.memberName)) {
                 return;
             }
-            var localState = memberStates.get(memberName);
+            var localState = othersState.get(memberName);
             if (localState == null ||
                     remoteState.stateType.isDead() ||
                     isSuspectLocalAliveMember(localState, remoteState) ||
                     isReviveLocalSuspectedMember(localState, remoteState) ||
                     isUpdateOfMemberStateWithTheSameType(localState, remoteState)) {
-                memberStates.put(memberName, remoteState);
+                othersState.put(memberName, remoteState);
             }
         });
     }
@@ -57,13 +94,13 @@ public class MemberList {
     }
 
     public synchronized List<MemberState> getMemberStates() {
-        var memberStateCopy = new ArrayList<>(memberStates.values());
+        var memberStateCopy = new ArrayList<>(othersState.values());
         memberStateCopy.add(myState);
         return memberStateCopy;
     }
 
     public synchronized List<MemberState> getMemberStateWithoutMe() {
-        return new ArrayList<>(memberStates.values());
+        return new ArrayList<>(othersState.values());
     }
 
     public static class MemberState implements Serializable {
@@ -93,16 +130,25 @@ public class MemberList {
             this.updated = updated;
         }
 
-        public MemberState suspectMember() {
-            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.SUSPECTED, Instant.now());
+        public MemberState tryToSuspectMember() {
+            if (isAlive()) {
+                return new MemberState(memberName, bindAddress, incarnation, MemberStateType.SUSPECTED, Instant.now());
+            }
+            return this;
         }
 
-        public MemberState makeMemberDead() {
-            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.DEAD, Instant.now());
+        public MemberState tryToKillMember() {
+            if (isSuspected()) {
+                return new MemberState(memberName, bindAddress, incarnation, MemberStateType.DEAD, Instant.now());
+            }
+            return this;
         }
 
-        public MemberState makeMemberAlive() {
-            return new MemberState(memberName, bindAddress, incarnation, MemberStateType.ALIVE, Instant.now());
+        public MemberState tryToAliveMember() {
+            if (isSuspected()) {
+                return new MemberState(memberName, bindAddress, incarnation, MemberStateType.ALIVE, Instant.now());
+            }
+            return this;
         }
 
         public boolean isAlive() {
@@ -111,6 +157,10 @@ public class MemberList {
 
         public boolean isSuspected() {
             return stateType.isSuspected();
+        }
+
+        public boolean isDead() {
+            return stateType.isDead();
         }
 
         static boolean isSuspectLocalAliveMember(MemberState local, MemberState remote) {
@@ -154,7 +204,7 @@ public class MemberList {
         }
     }
 
-    public static enum MemberStateType implements Serializable {
+    public enum MemberStateType implements Serializable {
         ALIVE, DEAD, SUSPECTED;
 
 

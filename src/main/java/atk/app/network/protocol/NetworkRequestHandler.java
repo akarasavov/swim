@@ -6,7 +6,7 @@ import atk.app.member.MemberList;
 import atk.app.network.NetworkResponse;
 import atk.app.network.NetworkServer;
 import atk.app.network.TcpRequest;
-import atk.app.network.netty.NetworkClient;
+import atk.app.network.NetworkClient;
 import atk.app.util.ConcurrencyUtil;
 import atk.app.util.channel.ReadableChannel;
 import java.time.Duration;

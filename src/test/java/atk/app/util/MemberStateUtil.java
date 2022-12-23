@@ -44,4 +44,8 @@ public class MemberStateUtil {
             sb.append(alphaNumeric.charAt(random.nextInt(alphaNumeric.length())));
         return sb.toString();
     }
+
+    public static MemberList.MemberState copyAndChangeState(MemberList.MemberState memberState, MemberList.MemberStateType newStateType) {
+        return new MemberList.MemberState(memberState.memberName, memberState.bindAddress, memberState.incarnation, newStateType, memberState.updated);
+    }
 }

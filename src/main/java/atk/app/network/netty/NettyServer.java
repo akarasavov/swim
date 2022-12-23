@@ -1,6 +1,5 @@
 package atk.app.network.netty;
 
-import atk.app.lifecycle.LifecycleStates;
 import atk.app.lifecycle.ThreadSafeLifecycle;
 import atk.app.network.NetworkServer;
 import atk.app.network.TcpRequest;

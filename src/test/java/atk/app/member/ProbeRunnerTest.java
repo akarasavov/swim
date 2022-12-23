@@ -1,15 +1,15 @@
 package atk.app.member;
 
-import static atk.app.util.ConcurrencyUtil.*;
+import static atk.app.util.ConcurrencyUtil.awaitForCompletion;
 import atk.app.network.NetworkRequest;
 import atk.app.network.NetworkResponse;
-import atk.app.network.netty.NetworkClient;
+import atk.app.network.NetworkClient;
 import atk.app.network.protocol.AckResponse;
 import atk.app.network.protocol.IndirectPingRequest;
 import atk.app.network.protocol.NetworkResponseHandler;
 import atk.app.network.protocol.PingRequest;
-import atk.app.util.MemberListUtil;
 import atk.app.util.ConcurrencyUtil;
+import atk.app.util.MemberListUtil;
 import java.net.SocketAddress;
 import java.time.Duration;
 import java.util.List;

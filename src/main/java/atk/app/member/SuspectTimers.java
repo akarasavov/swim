@@ -4,9 +4,6 @@ package atk.app.member;
 import atk.app.lifecycle.LifecycleStates;
 import atk.app.lifecycle.ThreadSafeLifecycle;
 import atk.app.util.ConcurrencyUtil;
-import atk.app.util.channel.WriteableChannel;
-import java.io.Closeable;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
@@ -19,14 +16,14 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class SuspectTimers extends ThreadSafeLifecycle {
-    private final WriteableChannel<MemberName> suspectMemberChannel;
     private final ScheduledExecutorService executor;
     private final Map<MemberName, ScheduledFuture<?>> timersMap = new ConcurrentHashMap<>();
     private final Duration suspectedMemberDeadline;
+    private final MemberList memberList;
 
-    public SuspectTimers(ExecutorService lifecycleExecutor, WriteableChannel<MemberName> deadMembers, Duration suspectedMemberDeadline) {
+    public SuspectTimers(ExecutorService lifecycleExecutor, MemberList memberList, Duration suspectedMemberDeadline) {
         super(lifecycleExecutor);
-        this.suspectMemberChannel = deadMembers;
+        this.memberList = memberList;
         this.executor = Executors.newScheduledThreadPool(1);
         this.suspectedMemberDeadline = suspectedMemberDeadline;
     }
@@ -39,7 +36,7 @@ public class SuspectTimers extends ThreadSafeLifecycle {
     @Override
     protected void stop0() {
         var memberNames = timersMap.keySet();
-        memberNames.stream().map(memberName -> timersMap.remove(memberNames))
+        memberNames.stream().map(timersMap::remove)
                 .filter(Objects::nonNull)
                 .forEach(future -> future.cancel(true));
     }
@@ -53,19 +50,33 @@ public class SuspectTimers extends ThreadSafeLifecycle {
     public void suspectMember(MemberName memberName) {
         verifyCurrentState(Set.of(LifecycleStates.STARTED));
 
-        timersMap.putIfAbsent(memberName,
-                // member will be marked as dead if suspectedMemberDeadline is violated
-                executor.schedule(() -> suspectMemberChannel.push(memberName), suspectedMemberDeadline.toMillis(),
-                        TimeUnit.MILLISECONDS)
-        );
+        if (timersMap.containsKey(memberName)) {
+            logger.warn("{} is already suspected", memberName);
+            return;
+        }
+        logger.debug("Start suspected timer for {}", memberName);
+        // member will be marked as dead if suspectedMemberDeadline is violated
+        ScheduledFuture<?> future = executor.schedule(() -> markMemberAsDead(memberName), suspectedMemberDeadline.toMillis(),
+                TimeUnit.MILLISECONDS);
+        timersMap.put(memberName, future);
     }
 
-    public void reviveMember(MemberName memberName) {
+    public void unSuspectMember(MemberName memberName) {
         verifyCurrentState(Set.of(LifecycleStates.STARTED));
 
-        ScheduledFuture<?> future = timersMap.get(memberName);
-        if (future != null) {
-            future.cancel(false);
+        ScheduledFuture<?> future = timersMap.remove(memberName);
+        if (future == null) {
+            logger.warn("There is not time related to {}", memberName);
+            return;
+        }
+        logger.debug("Stop suspected timer for {}", memberName);
+        future.cancel(false);
+    }
+
+    private void markMemberAsDead(MemberName memberName) {
+        logger.debug("Attempt to mark {} as dead", memberName);
+        if (memberList.makeMemberDead(memberName)) {
+            logger.debug("{} is marked as dead", memberName);
         }
     }
 }

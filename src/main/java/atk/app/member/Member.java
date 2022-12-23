@@ -6,12 +6,10 @@ import static atk.app.util.ExceptionUtil.ignoreThrownExceptions;
 import atk.app.lifecycle.ThreadSafeLifecycle;
 import atk.app.network.NetworkResponse;
 import atk.app.network.NetworkServer;
-import atk.app.network.netty.NetworkClient;
+import atk.app.network.NetworkClient;
 import atk.app.network.protocol.FullStateSyncRequest;
 import atk.app.network.protocol.NetworkRequestHandler;
 import atk.app.network.protocol.NetworkResponseHandler;
-import atk.app.util.channel.BoundedChannel;
-import atk.app.util.channel.Channel;
 import java.io.Closeable;
 import java.net.SocketAddress;
 import java.util.ArrayList;
@@ -51,9 +49,7 @@ public class Member extends ThreadSafeLifecycle {
         this.requestHandler = new NetworkRequestHandler(lifecycleExecutor, memberList, networkServer, networkClient, config.networkRequestMaximumDuration);
         closeables.add(requestHandler);
         // create suspect timers
-        Channel<MemberName> deadMemberChannel = new BoundedChannel<>(10);
-        this.suspectTimers = new SuspectTimers(lifecycleExecutor, deadMemberChannel, config.suspectedMemberDeadline);
-        closeables.add(deadMemberChannel);
+        this.suspectTimers = new SuspectTimers(lifecycleExecutor, memberList, config.suspectedMemberDeadline);
         closeables.add(suspectTimers);
         //create probe runner
         this.probeRunner = new ProbeRunner(networkResponseHandler, networkClient, memberList, suspectTimers,

@@ -16,8 +16,8 @@
 package atk.app.network.netty;
 
 import atk.app.network.NetworkResponse;
-import atk.app.util.channel.Channel;
 import atk.app.util.channel.BoundedChannel;
+import atk.app.util.channel.Channel;
 import atk.app.util.channel.ReadableChannel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
