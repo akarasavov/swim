@@ -5,6 +5,7 @@ import static atk.app.util.MemberStateUtil.copyAndChangeState;
 import static atk.app.util.MemberStateUtil.deadMember;
 import static atk.app.util.MemberStateUtil.updateIncarnationNumber;
 import static org.assertj.core.api.Assertions.assertThat;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,22 @@ class MemberListTest {
 
         //then member state contains two alive members
         assertThat(memberList.getMemberStates()).containsExactlyInAnyOrder(me, aliveMember);
+    }
+
+    @Test
+    void nextMemberShouldRoundRobinEvenlyAllMemberFromTheList() {
+        //when two alive member are observed
+        var aliveMember1 = aliveMember();
+        memberList.update(Map.of(aliveMember1.memberName, aliveMember1));
+        var aliveMember2 = aliveMember();
+        memberList.update(Map.of(aliveMember2.memberName, aliveMember2));
+
+        //then two time call of next member should return two distinct elements
+        var firstMemberState = memberList.nextMemberToPing();
+        var secondMemberState = memberList.nextMemberToPing();
+
+        assertThat(memberList.getMemberStateWithoutMe()).containsExactlyInAnyOrder(firstMemberState, secondMemberState);
+        assertThat(List.of(firstMemberState, secondMemberState)).contains(memberList.nextMemberToPing());
     }
 
     @Test
@@ -79,7 +96,7 @@ class MemberListTest {
     }
 
     @Test
-    void cantMakeDeadMemberSuspectedOrAlive(){
+    void cantMakeDeadMemberSuspectedOrAlive() {
         //given an alive member
         var deadMember = deadMember();
         memberList.update(Map.of(deadMember.memberName, deadMember));

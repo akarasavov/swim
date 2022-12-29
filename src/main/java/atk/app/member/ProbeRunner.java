@@ -21,6 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,26 +86,20 @@ public class ProbeRunner extends ThreadSafeLifecycle {
         if (localMemberStates.isEmpty()) {
             return;
         }
-        var probeTargetIndex = getKRandomIndexesInRange(1, localMemberStates.size()).iterator().next();
-        var probeTarget = localMemberStates.get(probeTargetIndex);
+        var probeTarget = memberList.nextMemberToPing();
         logger.debug("{} Start probing {}", myName, probeTarget.memberName);
         if (!sendPingRequestToTargetMember(memberList.getMemberStates(), probeTarget)) {
+            int numberOfIndirectPingTargets = Math.min(this.indirectPingTargets, localMemberStates.size() - 1);
+            var indirectPingTargets = localMemberStates.stream()
+                    .filter(memberState -> !memberState.memberName.equals(probeTarget.memberName))
+                    .limit(numberOfIndirectPingTargets)
+                    .collect(Collectors.toSet());
             var now = Instant.now();
-            if (now.isAfter(probeDeadLine)) {
+            if (!sendIndirectPingToRandomMembers(probeTarget, indirectPingTargets, Duration.between(now, probeDeadLine))) {
                 suspectMember(probeTarget);
                 return;
             } else {
-                int numberOfIndirectPingTargets = Math.min(this.indirectPingTargets, localMemberStates.size() - 1);
-                var indirectPingTargets = getKRandomIndexesInRange(numberOfIndirectPingTargets, localMemberStates.size(), index -> !index.equals(probeTargetIndex))
-                        .stream()
-                        .map(localMemberStates::get)
-                        .collect(Collectors.toSet());
-                if (!sendIndirectPingToRandomMembers(probeTarget, indirectPingTargets, Duration.between(now, probeDeadLine))) {
-                    suspectMember(probeTarget);
-                    return;
-                } else {
-                    logger.debug("{} successfully send indirect ping to {}", probeTarget.memberName, probeTarget.memberName);
-                }
+                logger.debug("{} successfully send indirect ping to {}", probeTarget.memberName, probeTarget.memberName);
             }
         } else {
             logger.debug("{} successfully ping {}.", myName, probeTarget.memberName);
@@ -148,21 +143,5 @@ public class ProbeRunner extends ThreadSafeLifecycle {
         if (memberList.makeMemberAlive(probeTarget.memberName)) {
             suspectTimers.unSuspectMember(probeTarget.memberName);
         }
-    }
-
-    private Set<Integer> getKRandomIndexesInRange(int k, int range) {
-        return getKRandomIndexesInRange(k, range, integer -> true);
-    }
-
-    private Set<Integer> getKRandomIndexesInRange(int k, int range, Predicate<Integer> noValues) {
-        Set<Integer> result = new HashSet<>();
-        while (result.size() < k) {
-            var random = new Random();
-            var nextId = random.nextInt(range);
-            if (noValues.test(nextId)) {
-                result.add(nextId);
-            }
-        }
-        return result;
     }
 }
